@@ -315,9 +315,18 @@ void nrfx_uarte_uninit(nrfx_uarte_t const * p_instance)
     nrf_uarte_task_trigger(p_reg, NRF_UARTE_TASK_STOPTX);
 
     // Wait for TXSTOPPED event and for RXTO event, provided that there was ongoing reception.
-    while (!nrf_uarte_event_check(p_reg, NRF_UARTE_EVENT_TXSTOPPED) ||
-           (p_cb->rx_buffer_length && !nrf_uarte_event_check(p_reg, NRF_UARTE_EVENT_RXTO)))
-    {}
+    bool stopped;
+
+    // The UARTE is able to receive up to four bytes after the STOPRX task has been triggered.
+    // On lowest supported baud rate (1200 baud), with parity bit and two stop bits configured
+    // (resulting in 12 bits per data byte sent), this may take up to 40 ms.
+    NRFX_WAIT_FOR((nrf_uarte_event_check(p_reg, NRF_UARTE_EVENT_TXSTOPPED) &&
+                  (!p_cb->rx_buffer_length || nrf_uarte_event_check(p_reg, NRF_UARTE_EVENT_RXTO))),
+                  40000, 1, stopped);
+    if (!stopped)
+    {
+        NRFX_LOG_ERROR("Failed to stop instance with base address: %p.", (void *)p_instance->p_reg);
+    }
 
     nrf_uarte_disable(p_reg);
     pins_to_default(p_instance);
